@@ -40,11 +40,56 @@ struct pkt
 
 
 /********* STUDENTS WRITE THE NEXT SEVEN ROUTINES *********/
+void tolayer3(int AorB /* A or B is trying to stop timer */, struct pkt packet);
+void tolayer5(int AorB, char datasent[20]);
+void starttimer(int AorB /* A or B is trying to stop timer */, float increment);
+void stoptimer(int AorB /* A or B is trying to stop timer */);
 
+const int MOD = 1<<30 - 1;
+const int N = 3;
+/* Init variables */
+int base = 0;
+int nextseqnum = 0;
+struct pkt sndpkt_buffer[8];
+
+int expectedseqnum = 0;
+
+int calc_checksum(struct pkt *packet){
+    int sum = 0;
+    sum += packet->seqnum;
+    sum = (sum % MOD) + (sum / MOD);
+    sum += packet->acknum;
+    sum = (sum % MOD) + (sum / MOD);
+    for(int i = 0; i < 20; i++){
+        sum += (unsigned int) packet->payload[i];
+        sum = (sum % MOD) + (sum / MOD);
+    }
+}
+
+struct pkt make_pkt(int nextseqnum, struct msg *message){
+    struct pkt sndpkt;
+    sndpkt.seqnum = nextseqnum;
+    sndpkt.acknum = 0;
+    for(int i = 0; i < 20; i++)
+        sndpkt.payload[i] = message->data[i];
+    sndpkt.checksum = calc_checksum(&sndpkt);
+    return sndpkt;
+}
 
 /* called from layer 5, passed the data to be sent to other side */
 void A_output(struct msg message)
 {
+    if(nextseqnum < base + N){
+        sndpkt_buffer[nextseqnum%N] = make_pkt(nextseqnum, &message);
+        tolayer3( 0, sndpkt_buffer[nextseqnum%N]);
+        if( base == nextseqnum )
+            starttimer(0, 100);
+        nextseqnum++;
+    }
+    else{
+        printf("Cannot send\n");
+        /* some action */
+    }
 }
 
 void B_output(struct msg message)
@@ -55,23 +100,50 @@ void B_output(struct msg message)
 /* called from layer 3, when a packet arrives for layer 4 */
 void A_input(struct pkt packet)
 {
+    int checksum = calc_checksum(&packet);
+    if( checksum == packet.checksum ){
+        base ++;
+        if(base == nextseqnum){
+            stoptimer(0);
+        }
+        else{
+            stoptimer(0);
+            starttimer(0, 100);
+        }
+    }
 }
 
 /* called when A's timer goes off */
 void A_timerinterrupt(void)
 {
+    starttimer(0, 100);
+    for(int i = 0; base + i < nextseqnum; i++ )
+        tolayer3( 0, sndpkt_buffer[(base+i)%N]);
 }
 
 /* the following routine will be called once (only) before any other */
 /* entity A routines are called. You can use it to do any initialization */
 void A_init(void)
 {
+    base = 0;
+    nextseqnum = 0;
 }
-
 
 /* called from layer 3, when a packet arrives for layer 4 at B*/
 void B_input(struct pkt packet)
 {
+    int checksum = calc_checksum(&packet);
+    if( checksum == packet.checksum && expectedseqnum == packet.seqnum ){
+        tolayer5(1, packet.payload);
+        struct pkt sndpkt;
+        sndpkt.acknum = expectedseqnum;
+        sndpkt.checksum = calc_checksum(&sndpkt);
+        tolayer3(1, sndpkt);
+        expectedseqnum++;
+    }
+    else{
+        printf("\t\tchecksume faile\n");
+    }
 }
 
 /* called when B's timer goes off */
@@ -84,6 +156,7 @@ void B_timerinterrupt(void)
 /* entity B routines are called. You can use it to do any initialization */
 void B_init(void)
 {
+    expectedseqnum = 0;
 }
 
 /*****************************************************************
