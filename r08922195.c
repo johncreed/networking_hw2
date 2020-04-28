@@ -49,39 +49,6 @@ void tolayer5(int AorB, char datasent[20]);
 void starttimer(int AorB /* A or B is trying to stop timer */, float increment);
 void stoptimer(int AorB /* A or B is trying to stop timer */);
 
-/*#define BUFFER_MAX 256
-int FRONT = 0;
-int BACK = 0;
-int CNT = 0;
-struct msg BUFFER[BUFFER_MAX];
-bool isFULL(){
-    return CNT == BUFFER_MAX;
-}
-
-int que_size(){
-    return CNT;
-}
-
-void insert(struct msg message){
-    if(!isFULL()){
-        BUFFER[BACK] = message;
-        CNT++;
-        BACK = (BACK+1)%BUFFER_MAX;
-    }
-}
-
-struct msg peek(){
-    return BUFFER[FRONT];
-}
-
-void pop(){
-    if(que_size() > 0){
-        FRONT = (FRONT++) % BUFFER_MAX;
-        CNT--;
-    }
-}
-*/
-
 #define MOD 99991
 #define N 20
 #define SHIFT 44
@@ -159,7 +126,6 @@ void B_output(struct msg message)
 /* called from layer 3, when a packet arrives for layer 4 */
 void A_input(struct pkt packet)
 {
-    int checksum = calc_checksum(&packet);
     print_pkt("(A) GET ack", &packet);
     if( check_checksum(&packet) ){
         int new_base = packet.acknum + 1;
@@ -208,7 +174,6 @@ void A_init(void)
 /* called from layer 3, when a packet arrives for layer 4 at B*/
 void B_input(struct pkt packet)
 {
-    int checksum = calc_checksum(&packet);
     printf("%*c", SHIFT, ' ');
     print_pkt("(B) GET pkt", &packet);
     printf("%*c", SHIFT, ' ');
