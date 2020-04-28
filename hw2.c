@@ -1,6 +1,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
+#include <stdbool.h>
 
 /* ******************************************************************
  ALTERNATING BIT AND GO-BACK-N NETWORK EMULATOR: VERSION 1.1  J.F.Kurose
@@ -45,16 +47,53 @@ void tolayer5(int AorB, char datasent[20]);
 void starttimer(int AorB /* A or B is trying to stop timer */, float increment);
 void stoptimer(int AorB /* A or B is trying to stop timer */);
 
-const int MOD = 1<<30 - 1;
-const int N = 3;
-/* Init variables */
+/*#define BUFFER_MAX 256
+int FRONT = 0;
+int BACK = 0;
+int CNT = 0;
+struct msg BUFFER[BUFFER_MAX];
+bool isFULL(){
+    return CNT == BUFFER_MAX;
+}
+
+int que_size(){
+    return CNT;
+}
+
+void insert(struct msg message){
+    if(!isFULL()){
+        BUFFER[BACK] = message;
+        CNT++;
+        BACK = (BACK+1)%BUFFER_MAX;
+    }
+}
+
+struct msg peek(){
+    return BUFFER[FRONT];
+}
+
+void pop(){
+    if(que_size() > 0){
+        FRONT = (FRONT++) % BUFFER_MAX;
+        CNT--;
+    }
+}
+*/
+
+#define MOD 99991
+#define N 20
+#define SHIFT 44
+#define time_limit 10
+/* A variables */
 int base = 0;
 int nextseqnum = 0;
-struct pkt sndpkt_buffer[8];
+struct pkt sndpkt_buffer[N];
 
+/* B variables */
 int expectedseqnum = 0;
+struct pkt ack_pkt;
 
-int calc_checksum(struct pkt *packet){
+int calc_checksum(const struct pkt *packet){
     int sum = 0;
     sum += packet->seqnum;
     sum = (sum % MOD) + (sum / MOD);
@@ -64,6 +103,7 @@ int calc_checksum(struct pkt *packet){
         sum += (unsigned int) packet->payload[i];
         sum = (sum % MOD) + (sum / MOD);
     }
+    return sum;
 }
 
 struct pkt make_pkt(int nextseqnum, struct msg *message){
@@ -76,19 +116,36 @@ struct pkt make_pkt(int nextseqnum, struct msg *message){
     return sndpkt;
 }
 
+bool check_checksum(const struct pkt *pack){
+    int checksum = calc_checksum(pack);
+    if( checksum == pack->checksum )
+        printf("Checksum PASS\n");
+    else
+        printf("Checksum not PASS\n");
+    return checksum == pack->checksum;
+}
+
+void print_pkt(const char* start_msg ,const struct pkt *pack){
+    printf("%s: seq %3d,  ack %3d\n", start_msg, pack->seqnum, pack->acknum);
+    //printf("%s: seq %3d,  ack %3d, checksum %6d,  payload \"%20s\"\n", start_msg, pack->seqnum, pack->acknum, pack->checksum, pack->payload);
+}
+
 /* called from layer 5, passed the data to be sent to other side */
+
 void A_output(struct msg message)
 {
     if(nextseqnum < base + N){
         sndpkt_buffer[nextseqnum%N] = make_pkt(nextseqnum, &message);
+        print_pkt("(A) SEND pkt", &(sndpkt_buffer[nextseqnum%N]));
         tolayer3( 0, sndpkt_buffer[nextseqnum%N]);
-        if( base == nextseqnum )
-            starttimer(0, 100);
+        if( base == nextseqnum ){
+            printf("Start timer\n");
+            starttimer(0, time_limit);
+        }
         nextseqnum++;
     }
     else{
-        printf("Cannot send\n");
-        /* some action */
+        printf("(A) ERROR: not send\n");
     }
 }
 
@@ -101,14 +158,23 @@ void B_output(struct msg message)
 void A_input(struct pkt packet)
 {
     int checksum = calc_checksum(&packet);
-    if( checksum == packet.checksum ){
-        base ++;
-        if(base == nextseqnum){
-            stoptimer(0);
-        }
-        else{
-            stoptimer(0);
-            starttimer(0, 100);
+    print_pkt("(A) GET ack", &packet);
+    if( check_checksum(&packet) ){
+        int new_base = packet.acknum + 1;
+        printf("Update base from %2d to %2d\n", base, new_base);
+
+        if( base != new_base ){
+            base=new_base;
+            if(base == nextseqnum){
+                printf("Stop timer\n");
+                stoptimer(0);
+            }
+            else{
+                printf("Stop timer\n");
+                stoptimer(0);
+                printf("Start timer\n");
+                starttimer(0, time_limit);
+            }
         }
     }
 }
@@ -116,9 +182,14 @@ void A_input(struct pkt packet)
 /* called when A's timer goes off */
 void A_timerinterrupt(void)
 {
-    starttimer(0, 100);
-    for(int i = 0; base + i < nextseqnum; i++ )
-        tolayer3( 0, sndpkt_buffer[(base+i)%N]);
+    if( base < nextseqnum ){
+        printf("Start timer\n");
+        starttimer(0, time_limit);
+        for(int i = 0; base + i < nextseqnum; i++ ){
+            print_pkt("(A) SEND pkt", &(sndpkt_buffer[(base+i)%N]));
+            tolayer3( 0, sndpkt_buffer[(base+i)%N]);
+        }
+    }
 }
 
 /* the following routine will be called once (only) before any other */
@@ -127,22 +198,37 @@ void A_init(void)
 {
     base = 0;
     nextseqnum = 0;
+
+    ack_pkt.acknum = -1;
+    ack_pkt.checksum = calc_checksum(&ack_pkt);
 }
 
 /* called from layer 3, when a packet arrives for layer 4 at B*/
 void B_input(struct pkt packet)
 {
     int checksum = calc_checksum(&packet);
-    if( checksum == packet.checksum && expectedseqnum == packet.seqnum ){
+    printf("%*c", SHIFT, ' ');
+    print_pkt("(B) GET pkt", &packet);
+    printf("%*c", SHIFT, ' ');
+    if( check_checksum(&packet) && expectedseqnum == packet.seqnum ){
+        printf("%*c", SHIFT, ' ');
+        printf("Accept pkt %d\n", packet.seqnum);
         tolayer5(1, packet.payload);
-        struct pkt sndpkt;
-        sndpkt.acknum = expectedseqnum;
-        sndpkt.checksum = calc_checksum(&sndpkt);
-        tolayer3(1, sndpkt);
+
+        ack_pkt.acknum = expectedseqnum;
+        ack_pkt.checksum = calc_checksum(&ack_pkt);
+        printf("%*c", SHIFT, ' ');
+        print_pkt("SEND ack", &ack_pkt);
+        tolayer3(1, ack_pkt);
+
         expectedseqnum++;
     }
     else{
-        printf("\t\tchecksume faile\n");
+        printf("%*c", SHIFT, ' ');
+        printf("Decline pkt %d\n", packet.seqnum);
+        printf("%*c", SHIFT, ' ');
+        print_pkt("SEND ack", &ack_pkt);
+        tolayer3(1, ack_pkt);
     }
 }
 
