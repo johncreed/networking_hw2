@@ -1,5 +1,9 @@
 a.out
+r08922195
+
 lex.yy.c
 *.swp
 *.o
 tags
+
+*.log

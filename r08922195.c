@@ -41,6 +41,7 @@ struct pkt
     int acknum;
     int checksum;
     char payload[20];
+    float timestamp;
 };
 
 
@@ -49,16 +50,20 @@ void tolayer3(int AorB /* A or B is trying to stop timer */, struct pkt packet);
 void tolayer5(int AorB, char datasent[20]);
 void starttimer(int AorB /* A or B is trying to stop timer */, float increment);
 void stoptimer(int AorB /* A or B is trying to stop timer */);
+float get_time();
 
 #define MOD 99991
 #define N 8
 #define SHIFT 44
-#define time_limit 10
 /* A variables */
 int base = 0;
 int nextseqnum = 0;
 struct pkt sndpkt_buffer[N];
 struct queue_state Q;
+float time_limit = 20;
+float alpha = 0.125;
+char filename[20] = "time.log";
+FILE *pFile;
 
 /* B variables */
 int expectedseqnum = 0;
@@ -97,7 +102,7 @@ bool check_checksum(const struct pkt *pack){
 }
 
 void print_pkt(const char* start_msg ,const struct pkt *pack){
-    printf("%s: seq %3d,  ack %3d\n", start_msg, pack->seqnum, pack->acknum);
+    printf("%s: seq %3d,  ack %3d, timestamp %f\n", start_msg, pack->seqnum, pack->acknum, pack->timestamp);
     //printf("%s: seq %3d,  ack %3d, checksum %6d,  payload \"%20s\"\n", start_msg, pack->seqnum, pack->acknum, pack->checksum, pack->payload);
 }
 
@@ -107,6 +112,7 @@ void A_output(struct msg message)
 {
     if(nextseqnum < base + N){
         sndpkt_buffer[nextseqnum%N] = make_pkt(nextseqnum, &message);
+        sndpkt_buffer[nextseqnum%N].timestamp = get_time();
         print_pkt("(A) SEND pkt", &(sndpkt_buffer[nextseqnum%N]));
         tolayer3( 0, sndpkt_buffer[nextseqnum%N]);
         if( base == nextseqnum ){
@@ -139,10 +145,18 @@ void A_output_from_buffer(int capacity){
     printf("(A) Buffer size: %d", size(&Q));
 }
 
+void time_output(const float sampleRTT){
+    fprintf(pFile, "%10f,%10f,%10f\n", get_time(), sampleRTT, time_limit);
+}
+
 /* called from layer 3, when a packet arrives for layer 4 */
 void A_input(struct pkt packet)
 {
     print_pkt("(A) GET ack", &packet);
+    float sampleRTT = get_time() - packet.timestamp;
+    printf("sampleRTT: %f estRTT: %f\n", sampleRTT, time_limit);
+    time_output(sampleRTT);
+    time_limit = (1 - alpha) * time_limit + alpha * sampleRTT; 
     if( check_checksum(&packet) ){
         int new_base = packet.acknum + 1;
         printf("Update base from %2d to %2d\n", base, new_base);
@@ -172,6 +186,7 @@ void A_timerinterrupt(void)
         printf("Start timer\n");
         starttimer(0, time_limit);
         for(int i = 0; base + i < nextseqnum; i++ ){
+            sndpkt_buffer[(base+i)%N].timestamp = get_time();
             print_pkt("(A) SEND pkt", &(sndpkt_buffer[(base+i)%N]));
             tolayer3( 0, sndpkt_buffer[(base+i)%N]);
         }
@@ -189,6 +204,9 @@ void A_init(void)
     ack_pkt.checksum = calc_checksum(&ack_pkt);
 
     init_queue(&Q);
+    
+    pFile = fopen(filename, "w");
+    fprintf(pFile,"%10s,%10s%f,%10s%f\n", "Time", "SampleRTT", alpha, "EstRTT", alpha);
 }
 
 /* called from layer 3, when a packet arrives for layer 4 at B*/
@@ -205,6 +223,7 @@ void B_input(struct pkt packet)
         ack_pkt.acknum = expectedseqnum;
         ack_pkt.checksum = calc_checksum(&ack_pkt);
         printf("%*c", SHIFT, ' ');
+        ack_pkt.timestamp = packet.timestamp;
         print_pkt("SEND ack", &ack_pkt);
         tolayer3(1, ack_pkt);
 
@@ -215,6 +234,7 @@ void B_input(struct pkt packet)
         printf("Decline pkt %d\n", packet.seqnum);
         printf("%*c", SHIFT, ' ');
         print_pkt("SEND ack", &ack_pkt);
+        ack_pkt.timestamp = packet.timestamp;
         tolayer3(1, ack_pkt);
     }
 }
@@ -346,6 +366,7 @@ int main(int argc, char **argv)
         {
             pkt2give.seqnum = eventptr->pktptr->seqnum;
             pkt2give.acknum = eventptr->pktptr->acknum;
+            pkt2give.timestamp = eventptr->pktptr->timestamp;
             pkt2give.checksum = eventptr->pktptr->checksum;
             for (i = 0; i < 20; i++)
                 pkt2give.payload[i] = eventptr->pktptr->payload[i];
@@ -373,6 +394,7 @@ terminate:
     printf(
         " Simulator terminated at time %f\n after sending %d msgs from layer5\n",
         time, nsim);
+    fclose(pFile);
 }
 
 void init(int argc, char **argv) /* initialize the simulator */
@@ -597,6 +619,7 @@ void tolayer3(int AorB /* A or B is trying to stop timer */, struct pkt packet)
     mypktptr = (struct pkt *)malloc(sizeof(struct pkt));
     mypktptr->seqnum = packet.seqnum;
     mypktptr->acknum = packet.acknum;
+    mypktptr->timestamp = packet.timestamp;
     mypktptr->checksum = packet.checksum;
     for (i = 0; i < 20; i++)
         mypktptr->payload[i] = packet.payload[i];
@@ -654,4 +677,9 @@ void tolayer5(int AorB, char datasent[20])
             printf("%c", datasent[i]);
         printf("\n");
     }
+}
+
+float get_time(){
+    printf("current time %f\n", time);
+    return time;
 }
