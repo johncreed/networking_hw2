@@ -10,17 +10,25 @@
 #define BUFFER_MAX 256
 #endif
 
-struct queue_state{
-    int front;
-    int back;
-    int count;
+#define MSG_LENGTH 20
+
+struct msg_node{
+    char message[MSG_LENGTH];
+    struct msg_node *prev, *next;
 };
 
-/*struct msg BUFFER[BUFFER_MAX];
-int que_size();
-void insert(struct msg message);
-struct msg peek();
-void pop();*/
+struct queue_state{
+    struct msg_node *front, *back;
+    struct msg_node *buffer;
+    int cnt;
+};
 
-bool isFULL(struct queue_state state);
+void init_queue(struct queue_state *state);
+void insert(const char message[], struct queue_state *state);
+void pop(struct queue_state *state);
+
+int size(const struct queue_state *state);
+char* front(const struct queue_state *state);
+bool empty(const struct queue_state *state);
+
 #endif

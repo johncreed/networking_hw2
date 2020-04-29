@@ -3,6 +3,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <stdbool.h>
+#include <math.h>
 
 #include "queue.h"
 
@@ -50,13 +51,14 @@ void starttimer(int AorB /* A or B is trying to stop timer */, float increment);
 void stoptimer(int AorB /* A or B is trying to stop timer */);
 
 #define MOD 99991
-#define N 20
+#define N 8
 #define SHIFT 44
 #define time_limit 10
 /* A variables */
 int base = 0;
 int nextseqnum = 0;
 struct pkt sndpkt_buffer[N];
+struct queue_state Q;
 
 /* B variables */
 int expectedseqnum = 0;
@@ -75,11 +77,11 @@ int calc_checksum(const struct pkt *packet){
     return sum;
 }
 
-struct pkt make_pkt(int nextseqnum, struct msg *message){
+struct pkt make_pkt(const int nextseqnum, const struct msg *message){
     struct pkt sndpkt;
     sndpkt.seqnum = nextseqnum;
     sndpkt.acknum = 0;
-    for(int i = 0; i < 20; i++)
+    for(int i = 0; i < MSG_LENGTH; i++)
         sndpkt.payload[i] = message->data[i];
     sndpkt.checksum = calc_checksum(&sndpkt);
     return sndpkt;
@@ -114,13 +116,27 @@ void A_output(struct msg message)
         nextseqnum++;
     }
     else{
-        printf("(A) ERROR: not send\n");
+        insert(message.data, &Q);
+        printf("(A) Not send. Save to buffer, buffer size %d\n", size(&Q));
     }
 }
 
 void B_output(struct msg message)
 {
     printf("  B_output: uni-directional. ignore.\n");
+}
+
+/* clear msg buffer */
+void A_output_from_buffer(int capacity){
+    printf("(A) Output %d package(s) from buffer\n", (int)fmin( (double)capacity, (double)size(&Q)));
+    while( capacity > 0  && !empty(&Q) ){
+        struct msg message;
+        strcpy(message.data, front(&Q));
+        A_output( message );
+        pop(&Q);
+        capacity--;
+    }
+    printf("(A) Buffer size: %d", size(&Q));
 }
 
 /* called from layer 3, when a packet arrives for layer 4 */
@@ -132,6 +148,7 @@ void A_input(struct pkt packet)
         printf("Update base from %2d to %2d\n", base, new_base);
 
         if( base != new_base ){
+            int capacity = new_base - base;
             base=new_base;
             if(base == nextseqnum){
                 printf("Stop timer\n");
@@ -143,6 +160,7 @@ void A_input(struct pkt packet)
                 printf("Start timer\n");
                 starttimer(0, time_limit);
             }
+            A_output_from_buffer(capacity);
         }
     }
 }
@@ -169,6 +187,8 @@ void A_init(void)
 
     ack_pkt.acknum = -1;
     ack_pkt.checksum = calc_checksum(&ack_pkt);
+
+    init_queue(&Q);
 }
 
 /* called from layer 3, when a packet arrives for layer 4 at B*/

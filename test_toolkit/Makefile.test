@@ -1,0 +1,13 @@
+CXX = gcc
+CXXFLAGS = -Wall
+
+all: que_test
+
+que_test: que_test.c queue.o
+	$(CXX)  -o $@ $^
+
+queue.o: queue.c
+	$(CXX) $(CXXFLAGS) -c queue.c
+
+clean: 
+	rm -f que_test queue.o
