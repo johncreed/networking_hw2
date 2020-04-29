@@ -3,9 +3,85 @@
 #include <string.h>
 #include <unistd.h>
 #include <stdbool.h>
-#include <math.h>
 
-#include "queue.h"
+#ifndef _QUEUE_H
+#define _QUEUE_H
+#define MSG_LENGTH 20
+
+struct msg_node{
+    char message[MSG_LENGTH];
+    struct msg_node *prev, *next;
+};
+
+struct queue_state{
+    struct msg_node *front, *back;
+    struct msg_node *buffer;
+    int cnt;
+};
+
+void destroy_msg_node(struct msg_node *state){
+    free(state);
+}
+
+struct msg_node* create_msg_node(const char message[]){
+    struct msg_node* new_node = (struct msg_node*) malloc(sizeof(struct queue_state));
+    new_node->prev = new_node->next = NULL;
+    strcpy(new_node->message, message);
+    return new_node;
+}
+
+bool empty(const struct queue_state *state){
+    return state->cnt == 0;
+}
+
+void init_queue(struct queue_state *state){
+    state->buffer = state->front = state->back = NULL;
+    state->cnt = 0;
+}
+
+void insert(const char message[], struct queue_state *state){
+    if(empty(state)){
+        state->buffer = create_msg_node(message);
+        state->front = state->buffer;
+        state->back = state->buffer;
+    }
+    else{
+        state->back->next = create_msg_node(message);
+        state->back->next->prev = state->back;
+        state->back = state->back->next;
+    }
+    state->cnt++;
+}
+
+void pop(struct queue_state *state){
+    if(!empty(state)){
+        struct msg_node *front_msg = state->front;
+        struct msg_node *next_msg = front_msg->next;
+
+        if(next_msg == NULL){
+            state->buffer = NULL;
+            state->back = NULL;
+            state->front = NULL;
+        }
+        else{
+            state->buffer = next_msg;
+            state->front = state->buffer;
+            next_msg->prev = NULL;
+        }
+        destroy_msg_node(front_msg);
+        state->cnt--;
+    }
+}
+
+int size(const struct queue_state *state){
+    return state->cnt;
+}
+
+char* front(const struct queue_state *state){
+    return state->front->message;
+}
+
+#endif
 
 /* ******************************************************************
  ALTERNATING BIT AND GO-BACK-N NETWORK EMULATOR: VERSION 1.1  J.F.Kurose
@@ -134,7 +210,6 @@ void B_output(struct msg message)
 
 /* clear msg buffer */
 void A_output_from_buffer(int capacity){
-    printf("(A) Output %d package(s) from buffer\n", (int)fmin( (double)capacity, (double)size(&Q)));
     while( capacity > 0  && !empty(&Q) ){
         struct msg message;
         strcpy(message.data, front(&Q));
