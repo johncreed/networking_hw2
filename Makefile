@@ -6,8 +6,8 @@ all: r08922195
 r08922195: r08922195.c queue.o
 	$(CXX)  -o $@ $^
 
-queue.o: queue.c queue.h
-	$(CXX) $(CXXFLAGS) -c $^
+queue.o: queue.c
+	$(CXX) $(CXXFLAGS) -c queue.c
 
 clean: 
 	rm -f r08922195 queue.o
